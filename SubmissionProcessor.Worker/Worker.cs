@@ -16,14 +16,15 @@ using System.Security.Cryptography;
 public class TaskConsumerWorker : BackgroundService
 {
     private readonly ILogger<TaskConsumerWorker> _logger;
-    private IConnection _connection;
+    private readonly ConnectionFactory _connectionFactory; 
+    private IConnection? _connection;
     private IChannel? _channel;
     private IServiceProvider _serviceProvider;
     private readonly string _queueName = "submission-processing";
 
-    public TaskConsumerWorker(ILogger<TaskConsumerWorker> logger, IConnection connection, IServiceProvider serviceProvider)
+    public TaskConsumerWorker(ILogger<TaskConsumerWorker> logger, ConnectionFactory connectionFactory, IServiceProvider serviceProvider)
     {
-        _connection = connection;
+        _connectionFactory = connectionFactory;
         _logger = logger;
         _serviceProvider = serviceProvider;
     }
@@ -39,20 +40,29 @@ public class TaskConsumerWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        await Task.Yield(); 
+        _connection = await _connectionFactory.CreateConnectionAsync(cancellationToken: stoppingToken);
         _channel = await _connection.CreateChannelAsync(cancellationToken: stoppingToken);
+        await _channel.ExchangeDeclareAsync(exchange: "submission.exchange", type: ExchangeType.Topic, durable: true);
 
         await _channel.QueueDeclareAsync(
-            queue: _queueName, durable: true, exclusive: false, autoDelete: false, arguments: null, cancellationToken: stoppingToken);
+            queue: "submission-processing", 
+            durable: true,
+            exclusive: false, 
+            autoDelete: false, 
+            arguments: null);
 
-        await _channel.BasicQosAsync(prefetchSize: 0, prefetchCount: 1, global: false, cancellationToken: stoppingToken);
-
+        await _channel.QueueBindAsync(
+            queue: "submission-processing", 
+            exchange: "submission.exchange", 
+            routingKey: "submission.requested");
         var consumer = new AsyncEventingBasicConsumer(_channel);
         consumer.ReceivedAsync += async (model, ea) =>
         {
             using var scope = _serviceProvider.CreateScope();
             var submissionFileRepository = scope.ServiceProvider.GetRequiredService<SubmissionFileRepository>();
             var fileStorageService = scope.ServiceProvider.GetRequiredService<IFileStorageService>();
-            // var processingJobsRepository = scope.ServiceProvider.GetRequiredService<ProcessingJobsRepository>();
+            var processingJobsRepository = scope.ServiceProvider.GetRequiredService<ProcessingJobsRepository>();
 
             var body = ea.Body.ToArray();
 
@@ -60,32 +70,48 @@ public class TaskConsumerWorker : BackgroundService
 
             try
             {
-                _logger.LogInformation("Processing item: {Message}", message);
+                
                 var content = JsonSerializer.Deserialize<SubmissionProcessingRequested>(message);
+                string correlationId = content.CorrelationId.ToString();
+                var job = await processingJobsRepository.GetByIdAsync(correlationId);
+                if (job == null)
+                {
+                    await processingJobsRepository.PostByIdAsync(correlationId);
+                    job = await processingJobsRepository.GetByIdAsync(correlationId);
+                }
+                await ProcessingStatusAndIncrementAsync(correlationId, processingJobsRepository, stoppingToken);
+                _logger.LogInformation("Processing item: {Message}", message);
+
                 await ValidateCheckSum(content, submissionFileRepository, fileStorageService, stoppingToken);
 
-                await SaveStatusToDatabaseAsync(message, stoppingToken);
-
                 await _channel.BasicAckAsync(deliveryTag: ea.DeliveryTag, multiple: false, cancellationToken: stoppingToken);
+                await processingJobsRepository.SetStatusById(correlationId, "Completed");
                 _logger.LogInformation("Successfully processed and persisted state. Message Acked.");
+
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failure occurred during processing chain.");
+                string correlationId = JsonSerializer.Deserialize<SubmissionProcessingRequested>(message)
+                    .CorrelationId.ToString();
+                await processingJobsRepository.SetStatusById(correlationId, "Failed");
                 await HandleFailureStrategyAsync(_channel, ea, stoppingToken);
             }
         };
 
         await _channel.BasicConsumeAsync(
             queue: _queueName, autoAck: false, consumer: consumer, cancellationToken: stoppingToken);
-
-        await Task.Delay(Timeout.Infinite, stoppingToken);
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            await Task.Delay(1000, stoppingToken);
+        }
     }
 
+
     private async Task ValidateCheckSum(
-        SubmissionProcessingRequested data, 
+        SubmissionProcessingRequested data,
         SubmissionFileRepository submissionFileRepository,
-        IFileStorageService fileStorageService, 
+        IFileStorageService fileStorageService,
         CancellationToken ct
     )
     {
@@ -99,6 +125,10 @@ public class TaskConsumerWorker : BackgroundService
             }
             var file = res.Value;
             string checksum = await GetChecksum(file);
+            if (checksum == fileMetadata.Checksum)
+            {
+                _logger.LogInformation($"Checksum for file with id {fileMetadata.Id} is correctly stored.");
+            }
         }
         catch(Exception e)
         {
@@ -106,10 +136,13 @@ public class TaskConsumerWorker : BackgroundService
         }
     }
 
-    private async Task SaveStatusToDatabaseAsync(string data, CancellationToken ct)
+
+    private async Task ProcessingStatusAndIncrementAsync(string correlationId, ProcessingJobsRepository repo, CancellationToken ct)
     {
-        await Task.Delay(100, ct);
+        await repo.SetStatusById(correlationId, "Processing");
+        await repo.IncrementAttemptById(correlationId);
     }
+
 
     private async Task HandleFailureStrategyAsync(IChannel channel, BasicDeliverEventArgs ea, CancellationToken ct)
     {
@@ -120,6 +153,7 @@ public class TaskConsumerWorker : BackgroundService
         await channel.BasicNackAsync(deliveryTag: ea.DeliveryTag, multiple: false, requeue: false, cancellationToken: ct);
         _logger.LogWarning("Message Nacked without requeue to prevent poison loops.");
     }
+
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {

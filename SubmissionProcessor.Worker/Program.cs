@@ -8,13 +8,17 @@ var builder = Host.CreateApplicationBuilder(args);
 
 var rabbitMQSettings = builder.Configuration.GetSection("ConnectionStrings");
 var uriString = rabbitMQSettings["RabbitMqURI"] ?? throw new InvalidOperationException("RabbitMQ URI is missing.");
-builder.Services.AddSingleton<IConnection>(serviceProvider =>
+// builder.Services.AddSingleton<IConnection>(serviceProvider =>
+// {
+//     var factory = new ConnectionFactory
+//     {
+//         Uri = new Uri(uriString)
+//     };
+//     return factory.CreateConnectionAsync().GetAwaiter().GetResult();
+// });
+builder.Services.AddSingleton(new ConnectionFactory
 {
-    var factory = new ConnectionFactory
-    {
-        Uri = new Uri(uriString)
-    };
-    return factory.CreateConnectionAsync().GetAwaiter().GetResult();
+    Uri = new Uri(uriString)
 });
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") 
