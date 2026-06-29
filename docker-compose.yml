@@ -1,0 +1,53 @@
+services:
+  redis:
+    image: docker-registry-002.zeuslearning.com/zeuslearning/redis
+    container_name: redis_container
+    restart: always
+    ports:
+      - "${REDIS_PORTS}"
+    command: >
+      sh -c "redis-server --requirepass ${REDIS_ROOT_PASSWORD} --user ${REDIS_USER} on >${REDIS_USER_PASSWORD} ~* +@all"
+    volumes:
+      - redis_data:/data
+
+  mysql-db:
+    image: docker-registry-002.zeuslearning.com/zeuslearning/mysql
+    container_name: mysql-container
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "${MYSQL_PORT}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  rabbitmq:
+    image: docker-registry-002.zeuslearning.com/zeuslearning/rabbitmq
+    container_name: rabbitmq
+    hostname: rabbitmq-server
+    restart: unless-stopped
+    ports:
+      - "${RABBITMQ_APP_PORT_DEFAULT}:${RABBITMQ_APP_PORT_VIRTUAL}" 
+      - "${RABBITMQ_WEBPAGE_PORT}"
+    configs:
+      - source: rabbitmq-plugins
+        target: /etc/rabbitmq/enabled_plugins
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+configs:
+  rabbitmq-plugins:
+    content: "[rabbitmq_management]."
+
+volumes:
+  mysql_data:
+  redis_data:
+    driver: local
+  rabbitmq_data:
+    driver: local
