@@ -35,7 +35,6 @@ builder.Services.AddDbContext<ApplicationDbContext>(
 builder.Services.AddScoped<IFileStorageService, LocalFileStorageService>();
 builder.Services.AddScoped<SubmissionFileRepository>();
 builder.Services.AddScoped<ProcessingJobsRepository>();
-Console.WriteLine(builder.Configuration["ConnectionStrings:HttpClientAPI"]);
 builder.Services.AddHttpClient<TaskConsumerWorker>((serviceProvider, client) =>
     {
         var baseUri = builder.Configuration["ConnectionStrings:HttpClientAPI"] ?? throw new InvalidOperationException("CRITICAL: ConnectionStrings:HttpClientAPI is missing from your appsettings configuration.");
@@ -75,7 +74,7 @@ builder.Services.AddHttpClient<TaskConsumerWorker>((serviceProvider, client) =>
     }
 );
 
-builder.Services.AddHostedService<TaskConsumerWorker>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<TaskConsumerWorker>());
 
 var host = builder.Build();
 host.Run();

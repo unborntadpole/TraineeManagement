@@ -7,6 +7,11 @@ namespace TrainingDirectory.Api.Controllers;
 [Route("api/[controller]")]
 public class TraineeController : ControllerBase
 {
+    private readonly ILogger<TraineeController> _logger;
+    public TraineeController(ILogger<TraineeController> logger)
+    {
+        _logger = logger;
+    }
     private static readonly List<Trainee> trainees =
     [
         new Trainee(){FirstName="Yash",LastName="Sharma",Email="yash.sharma@zeuslearning.com",TechStack="HTML,CSS",Status="Active"}, 
@@ -17,6 +22,7 @@ public class TraineeController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> Get()
     {
+        _logger.LogInformation("Api called at {timestamp}", DateTime.UtcNow);
         return Ok(trainees);
     }
 }

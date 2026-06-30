@@ -59,8 +59,8 @@ public class TaskConsumerWorker : BackgroundService
         string dlqName = $"{queue}-dead-letter";
         string deadLetterRoutingKey = $"{exchangeAndRoutingKey}.failed";
 
-        string routingKey = "${exchangeAndRoutingKey}.requested";
-        string exchange = "${exchangeAndRoutingKey}.exchange";
+        string routingKey = $"{exchangeAndRoutingKey}.requested";
+        string exchange = $"{exchangeAndRoutingKey}.exchange";
 
         await _channel.ExchangeDeclareAsync(exchange: dlxName, type: ExchangeType.Direct, durable: true);
         await _channel.QueueDeclareAsync(queue: dlqName, durable: true, exclusive: false, autoDelete: false);
@@ -125,7 +125,7 @@ public class TaskConsumerWorker : BackgroundService
                 await ProcessingStatusAndIncrementAsync(correlationId, processingJobsRepository, stoppingToken);
                 _logger.LogInformation("Processing item: {Message}", message);
 
-                await ValidateCheckSum(content, submissionFileRepository, fileStorageService, _client, stoppingToken);
+                await ValidateCheckSum(content, submissionFileRepository, fileStorageService, stoppingToken);
 
                 await _channel.BasicAckAsync(deliveryTag: ea.DeliveryTag, multiple: false, cancellationToken: stoppingToken);
                 await processingJobsRepository.SetStatusById(correlationId, "Completed");
@@ -168,7 +168,7 @@ public class TaskConsumerWorker : BackgroundService
         SubmissionProcessingRequested data,
         SubmissionFileRepository submissionFileRepository,
         IFileStorageService fileStorageService,
-        HttpClient _client,
+        // HttpClient _client,
         CancellationToken ct
     )
     {
