@@ -1,9 +1,9 @@
 using SubmissionProcessor.Worker;
 using SubmissionProcessor.HttpHandler;
 using RabbitMQ.Client;
-using TraineeManagementApi.db;
+using SubmissionProcessor.Worker.db;
 using Microsoft.EntityFrameworkCore;
-using TraineeManagementApi.Services;
+using SubmissionProcessor.Worker.Services;
 using System.Net;
 using Polly;
 

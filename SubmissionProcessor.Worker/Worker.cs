@@ -6,9 +6,9 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
-using TraineeManagementApi.db;
-using TraineeManagementApi.Services;
-using TraineeManagementApi.DTO;
+using SubmissionProcessor.Worker.db;
+using SubmissionProcessor.Worker.Services;
+using SubmissionProcessor.Worker.DTO;
 using System;
 using System.IO;
 using System.Security.Cryptography;
@@ -21,9 +21,9 @@ public class TaskConsumerWorker : BackgroundService
     private IConnection? _connection;
     private IChannel? _channel;
     private IServiceProvider _serviceProvider;
-    private static string queue = TraineeManagementApi.Constants.QueueConstants.SubmissionQueueName;
-    private static string exchangeAndRoutingKey = TraineeManagementApi.Constants.QueueConstants.SubmissionExchangeAndRoutingKey;
-    private static int MaxRetryAttempts = TraineeManagementApi.Constants.QueueConstants.SubmissionMaxRetryAttempts;
+    private static string queue = SubmissionProcessor.Worker.Constants.QueueConstants.SubmissionQueueName;
+    private static string exchangeAndRoutingKey = SubmissionProcessor.Worker.Constants.QueueConstants.SubmissionExchangeAndRoutingKey;
+    private static int MaxRetryAttempts = SubmissionProcessor.Worker.Constants.QueueConstants.SubmissionMaxRetryAttempts;
     private HttpClient _client;
     
 

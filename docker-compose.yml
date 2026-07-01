@@ -9,6 +9,8 @@ services:
       sh -c "redis-server --requirepass ${REDIS_ROOT_PASSWORD} --user ${REDIS_USER} on >${REDIS_USER_PASSWORD} ~* +@all"
     volumes:
       - redis_data:/data
+    networks:
+      - app-network
 
   mysql-db:
     image: docker-registry-002.zeuslearning.com/zeuslearning/mysql
@@ -20,9 +22,11 @@ services:
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     ports:
-      - "${MYSQL_PORT}:3306"
+      - "${MYSQL_PORT}:${MYSQL_PORT_INTERNAL}"
     volumes:
       - mysql_data:/var/lib/mysql
+    networks:
+      - app-network
 
   rabbitmq:
     image: docker-registry-002.zeuslearning.com/zeuslearning/rabbitmq
@@ -40,6 +44,89 @@ services:
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+
+  traineemanagement-api:
+    build:
+      context: .
+      dockerfile: TraineeManagementApi/DockerFile
+      args:
+        DOMAIN_OWNER: ${DOMAIN_OWNER}
+        NUGET_REPO_NAME: ${NUGET_REPO_NAME}
+        CODEARTIFACT_AUTH_TOKEN: ${CODEARTIFACT_AUTH_TOKEN}
+        REGION: ${REGION}
+    container_name : traineemanagement-container
+    image: traineemanagement-api:latest
+    ports:
+      - "5001:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - JwtConfig__Key=${JWT_SECRET_KEY}
+      - JwtConfig__Issuer=${JWT_ISSUER}
+      - JwtConfig__Audience=${JWT_AUDIENCE}
+      - JwtConfig__TokenValidityMins=${TOKENVALIDITYMINS}
+      - ConnectionStrings__RedisConnection=redis:${REDIS_INTERNAL_PORT},username=${REDIS_USER},password=${REDIS_USER_PASSWORD}
+      - ConnectionStrings__RabbitMqURI=amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:${RABBITMQ_APP_PORT_VIRTUAL}
+      - ConnectionStrings__DefaultConnection=server=mysql-db;port=${MYSQL_PORT_INTERNAL};database=${MYSQL_DATABASE};user=root;password=${MYSQL_ROOT_PASSWORD};
+    depends_on:
+      - mysql-db
+      - redis
+      - rabbitmq
+    networks:
+      - app-network
+    volumes:
+      - shared-uploads:/App/uploads
+
+  trainingdirectory-api:
+    build:
+      context: .
+      dockerfile: TrainingDirectory.Api/DockerFile
+      args:
+        DOMAIN_OWNER: ${DOMAIN_OWNER}
+        NUGET_REPO_NAME: ${NUGET_REPO_NAME}
+        CODEARTIFACT_AUTH_TOKEN: ${CODEARTIFACT_AUTH_TOKEN}
+        REGION: ${REGION}
+    container_name : trainingdirectory-container
+    image: trainingdirectory-api:latest
+    ports:
+      - "5002:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+    networks:
+      - app-network
+
+  workerservice:
+    build:
+      context: .
+      dockerfile: SubmissionProcessor.Worker/DockerFile
+      args:
+        DOMAIN_OWNER: ${DOMAIN_OWNER}
+        NUGET_REPO_NAME: ${NUGET_REPO_NAME}
+        CODEARTIFACT_AUTH_TOKEN: ${CODEARTIFACT_AUTH_TOKEN}
+        REGION: ${REGION}
+    container_name : workerservice-container
+    image: workerservice:latest
+    environment:
+      # - DOTNET_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=server=mysql-db;port=${MYSQL_PORT_INTERNAL};database=${MYSQL_DATABASE};user=root;password=${MYSQL_ROOT_PASSWORD};
+      - ConnectionStrings__HttpClientAPI=http://trainingdirectory-api:8080
+      - ConnectionStrings__RabbitMqURI=amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:${RABBITMQ_APP_PORT_DEFAULT}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      mysql-db:
+        condition: service_started
+    networks:
+      - app-network
+    volumes:
+      - shared-uploads:/App/uploads
 
 configs:
   rabbitmq-plugins:
@@ -51,3 +138,8 @@ volumes:
     driver: local
   rabbitmq_data:
     driver: local
+  shared-uploads:
+
+networks:
+  app-network:
+    driver: bridge
